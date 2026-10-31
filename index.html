@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="he">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arches Zoom</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #111; }
+  canvas { display: block; cursor: pointer; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+</head>
+<body>
+<script>
+// Same sketch as the original p5 code. Layers:
+// img1 = top (pink, 3.webp), img2 = middle (purple, 2.webp), img3 = bottom (yellow corridor, 1.jpg)
+let img1, img2, img3;
+let capture;
+let zoomFactor = 1;
+const maxZoom = 10;
+let silhouetteGraphics;
+let baselineSize = null;
+let frameCounter = 0;
+let smoothedZoom = 1;
+const smoothingFactor = 0.1;
+
+function preload() {
+  img1 = loadImage('3.webp');
+  img2 = loadImage('2.webp');
+  img3 = loadImage('1.jpg');
+}
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  capture = createCapture(VIDEO);
+  capture.size(640, 480);
+  capture.hide();
+
+  silhouetteGraphics = createGraphics(160, 120);
+}
+
+function draw() {
+  background(220);
+
+  silhouetteGraphics.background(255);
+  silhouetteGraphics.image(capture, 0, 0, silhouetteGraphics.width, silhouetteGraphics.height);
+  silhouetteGraphics.filter(THRESHOLD);
+
+  let silhouetteSize = calculateSilhouetteSize(silhouetteGraphics);
+
+  if (frameCounter < 30) {
+    frameCounter++;
+  } else if (baselineSize === null) {
+    baselineSize = silhouetteSize;
+    console.log("Baseline established:", baselineSize);
+  }
+
+  if (baselineSize !== null) {
+    if (silhouetteSize > baselineSize) {
+      zoomFactor = map(silhouetteSize, baselineSize, baselineSize * 1.5, 1, maxZoom);
+      zoomFactor = constrain(zoomFactor, 1, maxZoom);
+    } else {
+      zoomFactor = 1;
+    }
+
+    smoothedZoom += (zoomFactor - smoothedZoom) * smoothingFactor;
+
+    let scaleRatio = max(width / img3.width, height / img3.height);
+
+    push();
+    translate(width/2, height/2);
+    imageMode(CENTER);
+
+    let blurProgress3 = easeOutQuad(map(smoothedZoom, 1, maxZoom, 0, 1));
+    let blurProgress1 = easeOutExpo(map(smoothedZoom, 1, 1.5, 0, 1));
+    let blurAmount3 = map(blurProgress3, 0, 1, 2, 0);
+    let blurAmount1 = map(blurProgress1, 0, 1, 0, 2);
+
+    // Bottom layer
+    let newWidth3 = img3.width * scaleRatio * smoothedZoom;
+    let newHeight3 = img3.height * scaleRatio * smoothedZoom;
+    drawBlurredImage(img3, 0, 0, newWidth3, newHeight3, blurAmount3);
+
+    // Middle layer, 35% more zoom
+    let zoomMultiplier2 = 1 + (smoothedZoom - 1) * 1.35;
+    let newWidth2 = img2.width * scaleRatio * zoomMultiplier2;
+    let newHeight2 = img2.height * scaleRatio * zoomMultiplier2;
+    image(img2, 0, 0, newWidth2, newHeight2);
+
+    // Top layer, 35% more zoom than middle and much faster blur
+    let zoomMultiplier1 = 1 + (zoomMultiplier2 - 1) * 1.35;
+    let newWidth1 = img1.width * scaleRatio * zoomMultiplier1;
+    let newHeight1 = img1.height * scaleRatio * zoomMultiplier1;
+    drawBlurredImage(img1, 0, 0, newWidth1, newHeight1, blurAmount1);
+
+    pop();
+  } else {
+    // Unzoomed images while establishing baseline
+    let scaleRatio = max(width / img3.width, height / img3.height);
+    imageMode(CENTER);
+    drawBlurredImage(img3, width/2, height/2, img3.width * scaleRatio, img3.height * scaleRatio, 2);
+    image(img2, width/2, height/2, img2.width * scaleRatio, img2.height * scaleRatio);
+    image(img1, width/2, height/2, img1.width * scaleRatio, img1.height * scaleRatio);
+  }
+
+  imageMode(CORNER);
+  image(silhouetteGraphics, width - silhouetteGraphics.width - 10, 10);
+
+  fill(255);
+  noStroke();
+  textSize(16);
+  text(`Silhouette Size: ${silhouetteSize.toFixed(2)}`, 10, 20);
+  text(`Baseline Size: ${baselineSize !== null ? baselineSize.toFixed(2) : 'Calculating...'}`, 10, 40);
+  text(`Zoom: ${smoothedZoom.toFixed(2)}x`, 10, 60);
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+
+// Click (or press F) to toggle real fullscreen
+function mousePressed() {
+  fullscreen(!fullscreen());
+}
+
+function keyPressed() {
+  if (key === 'f' || key === 'F') fullscreen(!fullscreen());
+}
+
+function calculateSilhouetteSize(graphics) {
+  let totalBlackPixels = 0;
+  graphics.loadPixels();
+  for (let i = 0; i < graphics.pixels.length; i += 4) {
+    if (graphics.pixels[i] === 0) {
+      totalBlackPixels++;
+    }
+  }
+  return totalBlackPixels;
+}
+
+function drawBlurredImage(img, x, y, w, h, blurAmount) {
+  push();
+  drawingContext.filter = `blur(${blurAmount}px)`;
+  image(img, x, y, w, h);
+  drawingContext.filter = 'none';
+  pop();
+}
+
+function easeOutQuad(t) {
+  return t * (2 - t);
+}
+
+function easeOutExpo(t) {
+  return t === 1 ? 1 : 1 - Math.pow(2, -10 * t);
+}
+</script>
+</body>
+</html>
